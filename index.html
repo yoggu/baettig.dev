@@ -92,38 +92,38 @@
       canvas.height = window.innerHeight;
 
       const text = "baettig.dev";
-      // Responsive font size, capped at 100px
       let fontSize = Math.min(window.innerWidth / 8, 100);
       let particles = [];
+
+      // --- Device Detection Helper ---
+      // Basic check based on screen width. Adjust threshold as needed.
+      const isMobile = () => window.innerWidth <= 768;
 
       // Stores the current mouse/touch interaction details
       let interactionPoint = {
         x: null,
         y: null,
-        radius: 100, // How far around the point particles are affected
+        // --- CHANGE 1: Adjust radius based on device type ---
+        radius: isMobile() ? 60 : 100, // Smaller radius on mobile
       };
 
       /**
        * Creates particles based on the pixels of the rendered text.
-       * Uses a temporary offscreen canvas for pixel analysis.
        */
       function createParticles() {
         particles = [];
 
-        // Temporary canvas setup for drawing text offscreen
         const tempCanvas = document.createElement("canvas");
         const tempCtx = tempCanvas.getContext("2d");
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
 
-        // Draw the text to the temporary canvas
         tempCtx.fillStyle = "white";
         tempCtx.font = `bold ${fontSize}px Arial`;
         tempCtx.textAlign = "center";
         tempCtx.textBaseline = "middle";
         tempCtx.fillText(text, canvas.width / 2, canvas.height / 2);
 
-        // Get pixel data [R,G,B,A, R,G,B,A, ...]
         const imageData = tempCtx.getImageData(
           0,
           0,
@@ -132,16 +132,11 @@
         );
         const data = imageData.data;
 
-        // Controls particle density: lower value = more particles
-        const densitySampling = 4; // Check every 4th pixel column/row
+        const densitySampling = isMobile() ? 3 : 4;
 
-        // Iterate through pixels based on density
         for (let y = 0; y < canvas.height; y += densitySampling) {
           for (let x = 0; x < canvas.width; x += densitySampling) {
-            // Calculate index for the Alpha component of the current pixel
-            // Formula: (row * width + column) * 4 components_per_pixel + 3 (alpha index)
             const index = (y * canvas.width + x) * 4 + 3;
-            // Create particle if the pixel is mostly opaque (part of the text)
             if (data[index] > 128) {
               particles.push(new Particle(x, y));
             }
@@ -151,20 +146,15 @@
 
       class Particle {
         constructor(x, y) {
-          // Start position slightly offset from base for visual variety
           this.x = x + (Math.random() - 0.5) * 5;
           this.y = y + (Math.random() - 0.5) * 5;
-          // The 'home' position this particle tries to return to
           this.baseX = x;
           this.baseY = y;
-          this.vx = 0; // Velocity x
-          this.vy = 0; // Velocity y
-          // Represents combined push strength/reactivity. Randomized range [18, 63) for variety.
+          this.vx = 0;
+          this.vy = 0;
           this.density = 18 + Math.random() * 45;
-          this.alpha = 1; // Opacity (1 = fully visible)
-          // Friction factor (0-1). Value closer to 1 means less friction. Acts as damping.
+          this.alpha = 1;
           this.friction = 0.95;
-          // Strength of the force pulling particle back to its base. Randomized range [0.01, 0.025).
           this.returnForce = 0.01 + Math.random() * 0.015;
         }
 
@@ -173,7 +163,6 @@
           let dyInteraction = 0;
           let distanceInteraction = Infinity;
 
-          // --- Interaction Calculation (Push away) ---
           if (interaction.x !== null && interaction.y !== null) {
             dxInteraction = this.x - interaction.x;
             dyInteraction = this.y - interaction.y;
@@ -181,41 +170,33 @@
               dxInteraction ** 2 + dyInteraction ** 2
             );
 
+            // Use the dynamically set interaction radius
             if (
-              distanceInteraction < interaction.radius &&
+              distanceInteraction < interactionPoint.radius &&
               distanceInteraction > 0
             ) {
-              // Force is stronger when closer: ((Radius - Dist) / Radius) yields [0, 1) factor.
-              // Multiply by particle's individual density (push strength).
               const force =
-                ((interaction.radius - distanceInteraction) /
-                  interaction.radius) *
+                ((interactionPoint.radius - distanceInteraction) /
+                  interactionPoint.radius) *
                 this.density;
 
-              // Apply force in the direction away from the interaction point
-              // (dx / distance) is the X component of the normalized direction vector.
               this.vx += (dxInteraction / distanceInteraction) * force;
               this.vy += (dyInteraction / distanceInteraction) * force;
             }
           }
 
-          // --- Return to Base Calculation ---
           const dxBase = this.baseX - this.x;
           const dyBase = this.baseY - this.y;
-          // Apply force pulling particle towards its base position
           this.vx += dxBase * this.returnForce;
           this.vy += dyBase * this.returnForce;
 
-          // --- Apply Friction & Update Position ---
-          // Reduce velocity slightly each frame to simulate damping/drag
           this.vx *= this.friction;
           this.vy *= this.friction;
           this.x += this.vx;
           this.y += this.vy;
 
-          // --- Fade Near Edges ---
-          const fadeMargin = 50; // Px distance from edge where fade starts
-          let targetAlpha = 1; // Default to fully opaque
+          const fadeMargin = 50;
+          let targetAlpha = 1;
 
           if (this.x < fadeMargin) targetAlpha = this.x / fadeMargin;
           else if (this.x > canvas.width - fadeMargin)
@@ -224,14 +205,11 @@
           else if (this.y > canvas.height - fadeMargin)
             targetAlpha = (canvas.height - this.y) / fadeMargin;
 
-          // Smoothly transition alpha towards the target value (e.g., for softer fading)
-          // Moves alpha 10% towards the target each frame.
           this.alpha += (Math.max(0, targetAlpha) - this.alpha) * 0.1;
-          if (this.alpha > 1) this.alpha = 1; // Ensure alpha doesn't exceed 1
+          if (this.alpha > 1) this.alpha = 1;
         }
 
         draw() {
-          // Optimization: Skip drawing if particle is nearly invisible or off-screen
           if (
             this.alpha <= 0.01 ||
             this.x < 0 ||
@@ -271,19 +249,16 @@
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
         },
-        // Must be non-passive to allow preventDefault() in touchmove
         { passive: false }
       );
       canvas.addEventListener(
         "touchmove",
         (e) => {
-          // Prevent page scrolling while dragging on canvas
           e.preventDefault();
           if (e.touches.length > 0) {
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
         },
-        // Must be non-passive to allow preventDefault()
         { passive: false }
       );
       canvas.addEventListener("touchend", clearInteractionPoint);
@@ -291,15 +266,12 @@
 
       // --- Animation Loop ---
       function animate() {
-        // Clear canvas for next frame
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Update and draw all particles
         for (let i = 0; i < particles.length; i++) {
           particles[i].update(interactionPoint);
           particles[i].draw();
         }
-        // Schedule the next frame
         requestAnimationFrame(animate);
       }
 
@@ -308,14 +280,18 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         fontSize = Math.min(window.innerWidth / 8, 100);
-        // Regenerate particles completely for the new size/layout
+
+        // --- CHANGE 3: Update interaction radius on resize ---
+        interactionPoint.radius = isMobile() ? 70 : 100;
+
+        // Regenerate particles completely (this will use the updated densitySampling)
         createParticles();
       }
       window.addEventListener("resize", resizeCanvas);
 
       // --- Initial Setup ---
-      createParticles(); // Create initial particles
-      animate(); // Start the animation
+      createParticles();
+      animate();
     </script>
   </body>
 </html>
