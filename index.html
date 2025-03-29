@@ -2,7 +2,6 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Added user-scalable=no for better mobile experience -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=no"
@@ -41,8 +40,7 @@
       let interactionPoint = {
         x: null,
         y: null,
-        // --- CHANGE 1: Increased interaction radius ---
-        radius: 100, // Was 60, now particles are affected from further away
+        radius: 100, // Keep interaction radius large
       };
 
       function createParticles() {
@@ -65,10 +63,10 @@
           canvas.height
         );
         const data = imageData.data;
-        const density = 4;
+        const densitySampling = 4; // Renamed for clarity
 
-        for (let y = 0; y < canvas.height; y += density) {
-          for (let x = 0; x < canvas.width; x += density) {
+        for (let y = 0; y < canvas.height; y += densitySampling) {
+          for (let x = 0; x < canvas.width; x += densitySampling) {
             const index = (y * canvas.width + x) * 4;
             if (data[index + 3] > 128) {
               particles.push(new Particle(x, y));
@@ -85,14 +83,18 @@
           this.baseY = y;
           this.vx = 0;
           this.vy = 0;
-          // --- CHANGE 2: Increased density/base push strength ---
-          this.density = Math.random() * 20 + 15; // Was Math.random() * 10 + 5
+
+          // --- CHANGE 1: Combined push strength into 'density' ---
+          // Previous min combined: 15 * 1.2 = 18
+          // Previous max combined: 35 * 1.8 = 63
+          // Range size: 63 - 18 = 45
+          this.density = 18 + Math.random() * 45; // Now directly represents overall push strength
+
           this.alpha = 1;
-          this.friction = 0.95; // Keep friction for now, adjust if needed
-          // --- CHANGE 3: Decreased return force ---
-          this.returnForce = 0.01 + Math.random() * 0.015; // Was 0.02 + Math.random() * 0.03
-          // --- CHANGE 4: Slightly increased push multiplier ---
-          this.pushForceMultiplier = 1.2 + Math.random() * 0.6; // Was 1 + Math.random() * 0.5
+          this.friction = 0.95; // Damping force
+          this.returnForce = 0.01 + Math.random() * 0.015; // Force pulling back to base
+          // --- CHANGE 2: Removed pushForceMultiplier ---
+          // this.pushForceMultiplier = 1.2 + Math.random() * 0.6; // REMOVED
         }
 
         update(interaction) {
@@ -109,22 +111,21 @@
 
             if (
               distanceInteraction < interaction.radius &&
-              distanceInteraction > 0 // Avoid division by zero if distance is exactly 0
+              distanceInteraction > 0
             ) {
-              // Force calculation remains structurally the same, but the inputs (density, multiplier) are larger
+              // --- CHANGE 3: Simplified force calculation ---
               const force =
                 ((interaction.radius - distanceInteraction) /
-                  interaction.radius) * // Strength based on proximity
-                this.density * // Now stronger base push
-                this.pushForceMultiplier; // Now slightly higher multiplier
+                  interaction.radius) * // Proximity factor (0 to 1)
+                this.density; // Use the combined density/strength value
+              // * this.pushForceMultiplier; // REMOVED
 
-              // Apply the calculated force to velocity
               this.vx += (dxInteraction / distanceInteraction) * force;
               this.vy += (dyInteraction / distanceInteraction) * force;
             }
           }
 
-          // --- Return to Base Calculation (weaker now due to smaller returnForce) ---
+          // --- Return to Base Calculation ---
           const dxBase = this.baseX - this.x;
           const dyBase = this.baseY - this.y;
           this.vx += dxBase * this.returnForce;
@@ -139,7 +140,7 @@
 
           // --- Fade near edges ---
           const fadeMargin = 50;
-          let targetAlpha = 1; // Assume full alpha initially
+          let targetAlpha = 1;
           if (this.x < fadeMargin) targetAlpha = this.x / fadeMargin;
           else if (this.x > canvas.width - fadeMargin)
             targetAlpha = (canvas.width - this.x) / fadeMargin;
@@ -147,9 +148,8 @@
           else if (this.y > canvas.height - fadeMargin)
             targetAlpha = (canvas.height - this.y) / fadeMargin;
 
-          // Smoothly transition alpha instead of abrupt change
-          this.alpha += (Math.max(0, targetAlpha) - this.alpha) * 0.1; // Approach target alpha gradually
-          if (this.alpha > 1) this.alpha = 1; // Clamp alpha
+          this.alpha += (Math.max(0, targetAlpha) - this.alpha) * 0.1;
+          if (this.alpha > 1) this.alpha = 1;
         }
 
         draw() {
