@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Added user-scalable=no for better mobile experience -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
     <link rel="icon" href="favicon.ico" type="image/x-icon" />
     <title>baettig.dev</title>
     <meta name="description" content="Personal website of yoggu" />
@@ -14,12 +18,10 @@
         margin: 0;
         overflow: hidden;
         background: black;
-        /* Prevent pull-to-refresh and other unwanted touch behaviors */
         overscroll-behavior: none;
       }
       canvas {
         display: block;
-        /* Ensure canvas doesn't trigger unwanted touch actions */
         touch-action: none;
       }
     </style>
@@ -33,25 +35,25 @@
       canvas.height = window.innerHeight;
 
       const text = "baettig.dev";
-      const fontSize = Math.min(window.innerWidth / 8, 100); // Adjust font size based on width, max 100px
+      let fontSize = Math.min(window.innerWidth / 8, 100);
       let particles = [];
 
-      // Central interaction point coordinates
       let interactionPoint = {
         x: null,
         y: null,
-        radius: 60, // Increased interaction radius slightly
+        // --- CHANGE 1: Increased interaction radius ---
+        radius: 100, // Was 60, now particles are affected from further away
       };
 
       function createParticles() {
-        particles = []; // Clear existing particles if any (e.g., on resize)
+        particles = [];
         const tempCanvas = document.createElement("canvas");
         const tempCtx = tempCanvas.getContext("2d");
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
 
         tempCtx.fillStyle = "white";
-        tempCtx.font = `bold ${fontSize}px Arial`; // Made font bold for denser particles
+        tempCtx.font = `bold ${fontSize}px Arial`;
         tempCtx.textAlign = "center";
         tempCtx.textBaseline = "middle";
         tempCtx.fillText(text, canvas.width / 2, canvas.height / 2);
@@ -63,14 +65,11 @@
           canvas.height
         );
         const data = imageData.data;
-
-        // Adjust density based on screen size maybe? Or keep fixed.
-        const density = 4; // Sample every 4 pixels
+        const density = 4;
 
         for (let y = 0; y < canvas.height; y += density) {
           for (let x = 0; x < canvas.width; x += density) {
             const index = (y * canvas.width + x) * 4;
-            // Check alpha channel (data[index + 3]) for text pixels
             if (data[index + 3] > 128) {
               particles.push(new Particle(x, y));
             }
@@ -80,17 +79,20 @@
 
       class Particle {
         constructor(x, y) {
-          this.x = x + (Math.random() - 0.5) * 5; // Add slight initial randomness
+          this.x = x + (Math.random() - 0.5) * 5;
           this.y = y + (Math.random() - 0.5) * 5;
           this.baseX = x;
           this.baseY = y;
           this.vx = 0;
           this.vy = 0;
-          this.density = Math.random() * 10 + 5; // Affects how strongly it's pushed/returns
+          // --- CHANGE 2: Increased density/base push strength ---
+          this.density = Math.random() * 20 + 15; // Was Math.random() * 10 + 5
           this.alpha = 1;
-          this.friction = 0.95;
-          this.returnForce = 0.02 + Math.random() * 0.03; // How quickly it returns to base
-          this.pushForceMultiplier = 1 + Math.random() * 0.5; // Variation in push strength
+          this.friction = 0.95; // Keep friction for now, adjust if needed
+          // --- CHANGE 3: Decreased return force ---
+          this.returnForce = 0.01 + Math.random() * 0.015; // Was 0.02 + Math.random() * 0.03
+          // --- CHANGE 4: Slightly increased push multiplier ---
+          this.pushForceMultiplier = 1.2 + Math.random() * 0.6; // Was 1 + Math.random() * 0.5
         }
 
         update(interaction) {
@@ -98,7 +100,6 @@
           let dyInteraction = 0;
           let distanceInteraction = Infinity;
 
-          // --- Interaction Calculation ---
           if (interaction.x !== null && interaction.y !== null) {
             dxInteraction = this.x - interaction.x;
             dyInteraction = this.y - interaction.y;
@@ -108,23 +109,24 @@
 
             if (
               distanceInteraction < interaction.radius &&
-              distanceInteraction > 0
+              distanceInteraction > 0 // Avoid division by zero if distance is exactly 0
             ) {
+              // Force calculation remains structurally the same, but the inputs (density, multiplier) are larger
               const force =
                 ((interaction.radius - distanceInteraction) /
-                  interaction.radius) *
-                this.density *
-                this.pushForceMultiplier;
-              // Push away from the interaction point
+                  interaction.radius) * // Strength based on proximity
+                this.density * // Now stronger base push
+                this.pushForceMultiplier; // Now slightly higher multiplier
+
+              // Apply the calculated force to velocity
               this.vx += (dxInteraction / distanceInteraction) * force;
               this.vy += (dyInteraction / distanceInteraction) * force;
             }
           }
 
-          // --- Return to Base Calculation ---
+          // --- Return to Base Calculation (weaker now due to smaller returnForce) ---
           const dxBase = this.baseX - this.x;
           const dyBase = this.baseY - this.y;
-          // Gently pull back to the base position
           this.vx += dxBase * this.returnForce;
           this.vy += dyBase * this.returnForce;
 
@@ -137,20 +139,20 @@
 
           // --- Fade near edges ---
           const fadeMargin = 50;
-          if (this.x < fadeMargin) this.alpha = this.x / fadeMargin;
+          let targetAlpha = 1; // Assume full alpha initially
+          if (this.x < fadeMargin) targetAlpha = this.x / fadeMargin;
           else if (this.x > canvas.width - fadeMargin)
-            this.alpha = (canvas.width - this.x) / fadeMargin;
-          else if (this.y < fadeMargin) this.alpha = this.y / fadeMargin;
+            targetAlpha = (canvas.width - this.x) / fadeMargin;
+          else if (this.y < fadeMargin) targetAlpha = this.y / fadeMargin;
           else if (this.y > canvas.height - fadeMargin)
-            this.alpha = (canvas.height - this.y) / fadeMargin;
-          else this.alpha = 1;
+            targetAlpha = (canvas.height - this.y) / fadeMargin;
 
-          if (this.alpha < 0) this.alpha = 0;
+          // Smoothly transition alpha instead of abrupt change
+          this.alpha += (Math.max(0, targetAlpha) - this.alpha) * 0.1; // Approach target alpha gradually
           if (this.alpha > 1) this.alpha = 1; // Clamp alpha
         }
 
         draw() {
-          // Optimization: Don't draw if almost invisible or outside screen
           if (
             this.alpha <= 0.01 ||
             this.x < 0 ||
@@ -162,13 +164,12 @@
           }
           ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
           ctx.beginPath();
-          ctx.arc(this.x, this.y, 1.5, 0, Math.PI * 2); // Slightly smaller radius
+          ctx.arc(this.x, this.y, 1.5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
       // --- Event Listeners ---
-
       function updateInteractionPoint(x, y) {
         interactionPoint.x = x;
         interactionPoint.y = y;
@@ -179,46 +180,34 @@
         interactionPoint.y = null;
       }
 
-      // Mouse Events
       canvas.addEventListener("mousemove", (e) => {
         updateInteractionPoint(e.clientX, e.clientY);
       });
-
       canvas.addEventListener("mouseout", () => {
         clearInteractionPoint();
       });
-
-      // Touch Events
       canvas.addEventListener(
         "touchstart",
         (e) => {
-          // Use the first touch point
           if (e.touches.length > 0) {
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
-          // Optional: Prevent default only if needed, might interfere with accessibility
-          // e.preventDefault();
         },
         { passive: false }
-      ); // `passive: false` is needed to allow preventDefault
-
+      );
       canvas.addEventListener(
         "touchmove",
         (e) => {
-          // Prevent scrolling/zooming while interacting with canvas
           e.preventDefault();
-          // Use the first touch point
           if (e.touches.length > 0) {
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
         },
         { passive: false }
-      ); // `passive: false` is needed to allow preventDefault
-
+      );
       canvas.addEventListener("touchend", () => {
         clearInteractionPoint();
       });
-
       canvas.addEventListener("touchcancel", () => {
         clearInteractionPoint();
       });
@@ -226,12 +215,10 @@
       // --- Animation Loop ---
       function animate() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
         for (let i = 0; i < particles.length; i++) {
           particles[i].update(interactionPoint);
           particles[i].draw();
         }
-
         requestAnimationFrame(animate);
       }
 
@@ -239,10 +226,9 @@
       function resizeCanvas() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-        fontSize = Math.min(window.innerWidth / 8, 100); // Recalculate font size
-        createParticles(); // Recreate particles for the new size/layout
+        fontSize = Math.min(window.innerWidth / 8, 100);
+        createParticles();
       }
-
       window.addEventListener("resize", resizeCanvas);
 
       // --- Initial Setup ---
