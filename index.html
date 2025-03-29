@@ -18,15 +18,73 @@
         overflow: hidden;
         background: black;
         overscroll-behavior: none;
+        color: white;
       }
+
       canvas {
         display: block;
         touch-action: none;
+        position: relative;
+        z-index: 1;
+      }
+
+      .site-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        padding: 15px 25px;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        z-index: 10;
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+      }
+
+      .site-header a {
+        color: white;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .site-header svg {
+        width: 28px;
+        height: 28px;
+        fill: currentColor;
+        transition: opacity 0.2s ease-in-out;
+      }
+
+      .site-header a:hover svg,
+      .site-header a:focus svg {
+        opacity: 0.7;
       }
     </style>
   </head>
   <body>
+    <header class="site-header">
+      <a
+        href="https://github.com/yoggu"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="GitHub Profile"
+        aria-label="GitHub Profile"
+      >
+        <!-- GitHub SVG Icon -->
+        <svg viewBox="0 0 16 16" version="1.1" aria-hidden="true">
+          <path
+            fill-rule="evenodd"
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+      </a>
+    </header>
+
     <canvas id="canvas"></canvas>
+
     <script>
       const canvas = document.getElementById("canvas");
       const ctx = canvas.getContext("2d");
@@ -34,28 +92,38 @@
       canvas.height = window.innerHeight;
 
       const text = "baettig.dev";
+      // Responsive font size, capped at 100px
       let fontSize = Math.min(window.innerWidth / 8, 100);
       let particles = [];
 
+      // Stores the current mouse/touch interaction details
       let interactionPoint = {
         x: null,
         y: null,
-        radius: 100, // Keep interaction radius large
+        radius: 100, // How far around the point particles are affected
       };
 
+      /**
+       * Creates particles based on the pixels of the rendered text.
+       * Uses a temporary offscreen canvas for pixel analysis.
+       */
       function createParticles() {
         particles = [];
+
+        // Temporary canvas setup for drawing text offscreen
         const tempCanvas = document.createElement("canvas");
         const tempCtx = tempCanvas.getContext("2d");
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
 
+        // Draw the text to the temporary canvas
         tempCtx.fillStyle = "white";
         tempCtx.font = `bold ${fontSize}px Arial`;
         tempCtx.textAlign = "center";
         tempCtx.textBaseline = "middle";
         tempCtx.fillText(text, canvas.width / 2, canvas.height / 2);
 
+        // Get pixel data [R,G,B,A, R,G,B,A, ...]
         const imageData = tempCtx.getImageData(
           0,
           0,
@@ -63,12 +131,18 @@
           canvas.height
         );
         const data = imageData.data;
-        const densitySampling = 4; // Renamed for clarity
 
+        // Controls particle density: lower value = more particles
+        const densitySampling = 4; // Check every 4th pixel column/row
+
+        // Iterate through pixels based on density
         for (let y = 0; y < canvas.height; y += densitySampling) {
           for (let x = 0; x < canvas.width; x += densitySampling) {
-            const index = (y * canvas.width + x) * 4;
-            if (data[index + 3] > 128) {
+            // Calculate index for the Alpha component of the current pixel
+            // Formula: (row * width + column) * 4 components_per_pixel + 3 (alpha index)
+            const index = (y * canvas.width + x) * 4 + 3;
+            // Create particle if the pixel is mostly opaque (part of the text)
+            if (data[index] > 128) {
               particles.push(new Particle(x, y));
             }
           }
@@ -77,24 +151,21 @@
 
       class Particle {
         constructor(x, y) {
+          // Start position slightly offset from base for visual variety
           this.x = x + (Math.random() - 0.5) * 5;
           this.y = y + (Math.random() - 0.5) * 5;
+          // The 'home' position this particle tries to return to
           this.baseX = x;
           this.baseY = y;
-          this.vx = 0;
-          this.vy = 0;
-
-          // --- CHANGE 1: Combined push strength into 'density' ---
-          // Previous min combined: 15 * 1.2 = 18
-          // Previous max combined: 35 * 1.8 = 63
-          // Range size: 63 - 18 = 45
-          this.density = 18 + Math.random() * 45; // Now directly represents overall push strength
-
-          this.alpha = 1;
-          this.friction = 0.95; // Damping force
-          this.returnForce = 0.01 + Math.random() * 0.015; // Force pulling back to base
-          // --- CHANGE 2: Removed pushForceMultiplier ---
-          // this.pushForceMultiplier = 1.2 + Math.random() * 0.6; // REMOVED
+          this.vx = 0; // Velocity x
+          this.vy = 0; // Velocity y
+          // Represents combined push strength/reactivity. Randomized range [18, 63) for variety.
+          this.density = 18 + Math.random() * 45;
+          this.alpha = 1; // Opacity (1 = fully visible)
+          // Friction factor (0-1). Value closer to 1 means less friction. Acts as damping.
+          this.friction = 0.95;
+          // Strength of the force pulling particle back to its base. Randomized range [0.01, 0.025).
+          this.returnForce = 0.01 + Math.random() * 0.015;
         }
 
         update(interaction) {
@@ -102,6 +173,7 @@
           let dyInteraction = 0;
           let distanceInteraction = Infinity;
 
+          // --- Interaction Calculation (Push away) ---
           if (interaction.x !== null && interaction.y !== null) {
             dxInteraction = this.x - interaction.x;
             dyInteraction = this.y - interaction.y;
@@ -113,13 +185,15 @@
               distanceInteraction < interaction.radius &&
               distanceInteraction > 0
             ) {
-              // --- CHANGE 3: Simplified force calculation ---
+              // Force is stronger when closer: ((Radius - Dist) / Radius) yields [0, 1) factor.
+              // Multiply by particle's individual density (push strength).
               const force =
                 ((interaction.radius - distanceInteraction) /
-                  interaction.radius) * // Proximity factor (0 to 1)
-                this.density; // Use the combined density/strength value
-              // * this.pushForceMultiplier; // REMOVED
+                  interaction.radius) *
+                this.density;
 
+              // Apply force in the direction away from the interaction point
+              // (dx / distance) is the X component of the normalized direction vector.
               this.vx += (dxInteraction / distanceInteraction) * force;
               this.vy += (dyInteraction / distanceInteraction) * force;
             }
@@ -128,19 +202,21 @@
           // --- Return to Base Calculation ---
           const dxBase = this.baseX - this.x;
           const dyBase = this.baseY - this.y;
+          // Apply force pulling particle towards its base position
           this.vx += dxBase * this.returnForce;
           this.vy += dyBase * this.returnForce;
 
           // --- Apply Friction & Update Position ---
+          // Reduce velocity slightly each frame to simulate damping/drag
           this.vx *= this.friction;
           this.vy *= this.friction;
-
           this.x += this.vx;
           this.y += this.vy;
 
-          // --- Fade near edges ---
-          const fadeMargin = 50;
-          let targetAlpha = 1;
+          // --- Fade Near Edges ---
+          const fadeMargin = 50; // Px distance from edge where fade starts
+          let targetAlpha = 1; // Default to fully opaque
+
           if (this.x < fadeMargin) targetAlpha = this.x / fadeMargin;
           else if (this.x > canvas.width - fadeMargin)
             targetAlpha = (canvas.width - this.x) / fadeMargin;
@@ -148,11 +224,14 @@
           else if (this.y > canvas.height - fadeMargin)
             targetAlpha = (canvas.height - this.y) / fadeMargin;
 
+          // Smoothly transition alpha towards the target value (e.g., for softer fading)
+          // Moves alpha 10% towards the target each frame.
           this.alpha += (Math.max(0, targetAlpha) - this.alpha) * 0.1;
-          if (this.alpha > 1) this.alpha = 1;
+          if (this.alpha > 1) this.alpha = 1; // Ensure alpha doesn't exceed 1
         }
 
         draw() {
+          // Optimization: Skip drawing if particle is nearly invisible or off-screen
           if (
             this.alpha <= 0.01 ||
             this.x < 0 ||
@@ -169,23 +248,22 @@
         }
       }
 
-      // --- Event Listeners ---
+      // --- Event Handling Helpers ---
       function updateInteractionPoint(x, y) {
         interactionPoint.x = x;
         interactionPoint.y = y;
       }
-
       function clearInteractionPoint() {
         interactionPoint.x = null;
         interactionPoint.y = null;
       }
 
+      // --- Event Listeners ---
       canvas.addEventListener("mousemove", (e) => {
         updateInteractionPoint(e.clientX, e.clientY);
       });
-      canvas.addEventListener("mouseout", () => {
-        clearInteractionPoint();
-      });
+      canvas.addEventListener("mouseout", clearInteractionPoint);
+
       canvas.addEventListener(
         "touchstart",
         (e) => {
@@ -193,47 +271,51 @@
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
         },
+        // Must be non-passive to allow preventDefault() in touchmove
         { passive: false }
       );
       canvas.addEventListener(
         "touchmove",
         (e) => {
+          // Prevent page scrolling while dragging on canvas
           e.preventDefault();
           if (e.touches.length > 0) {
             updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
           }
         },
+        // Must be non-passive to allow preventDefault()
         { passive: false }
       );
-      canvas.addEventListener("touchend", () => {
-        clearInteractionPoint();
-      });
-      canvas.addEventListener("touchcancel", () => {
-        clearInteractionPoint();
-      });
+      canvas.addEventListener("touchend", clearInteractionPoint);
+      canvas.addEventListener("touchcancel", clearInteractionPoint);
 
       // --- Animation Loop ---
       function animate() {
+        // Clear canvas for next frame
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Update and draw all particles
         for (let i = 0; i < particles.length; i++) {
           particles[i].update(interactionPoint);
           particles[i].draw();
         }
+        // Schedule the next frame
         requestAnimationFrame(animate);
       }
 
-      // --- Responsive Canvas ---
+      // --- Responsive Canvas Handling ---
       function resizeCanvas() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         fontSize = Math.min(window.innerWidth / 8, 100);
+        // Regenerate particles completely for the new size/layout
         createParticles();
       }
       window.addEventListener("resize", resizeCanvas);
 
       // --- Initial Setup ---
-      createParticles();
-      animate();
+      createParticles(); // Create initial particles
+      animate(); // Start the animation
     </script>
   </body>
 </html>
