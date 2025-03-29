@@ -14,9 +14,13 @@
         margin: 0;
         overflow: hidden;
         background: black;
+        /* Prevent pull-to-refresh and other unwanted touch behaviors */
+        overscroll-behavior: none;
       }
       canvas {
         display: block;
+        /* Ensure canvas doesn't trigger unwanted touch actions */
+        touch-action: none;
       }
     </style>
   </head>
@@ -29,17 +33,25 @@
       canvas.height = window.innerHeight;
 
       const text = "baettig.dev";
-      const fontSize = 120;
+      const fontSize = Math.min(window.innerWidth / 8, 100); // Adjust font size based on width, max 100px
       let particles = [];
 
+      // Central interaction point coordinates
+      let interactionPoint = {
+        x: null,
+        y: null,
+        radius: 60, // Increased interaction radius slightly
+      };
+
       function createParticles() {
+        particles = []; // Clear existing particles if any (e.g., on resize)
         const tempCanvas = document.createElement("canvas");
         const tempCtx = tempCanvas.getContext("2d");
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
 
         tempCtx.fillStyle = "white";
-        tempCtx.font = `${fontSize}px Arial`;
+        tempCtx.font = `bold ${fontSize}px Arial`; // Made font bold for denser particles
         tempCtx.textAlign = "center";
         tempCtx.textBaseline = "middle";
         tempCtx.fillText(text, canvas.width / 2, canvas.height / 2);
@@ -52,10 +64,14 @@
         );
         const data = imageData.data;
 
-        for (let y = 0; y < canvas.height; y += 4) {
-          for (let x = 0; x < canvas.width; x += 4) {
+        // Adjust density based on screen size maybe? Or keep fixed.
+        const density = 4; // Sample every 4 pixels
+
+        for (let y = 0; y < canvas.height; y += density) {
+          for (let x = 0; x < canvas.width; x += density) {
             const index = (y * canvas.width + x) * 4;
-            if (data[index] > 128) {
+            // Check alpha channel (data[index + 3]) for text pixels
+            if (data[index + 3] > 128) {
               particles.push(new Particle(x, y));
             }
           }
@@ -64,79 +80,172 @@
 
       class Particle {
         constructor(x, y) {
-          this.x = x;
-          this.y = y;
+          this.x = x + (Math.random() - 0.5) * 5; // Add slight initial randomness
+          this.y = y + (Math.random() - 0.5) * 5;
           this.baseX = x;
           this.baseY = y;
           this.vx = 0;
           this.vy = 0;
+          this.density = Math.random() * 10 + 5; // Affects how strongly it's pushed/returns
           this.alpha = 1;
-          this.turbulence = 0.2;
-          this.friction = 0.999;
+          this.friction = 0.95;
+          this.returnForce = 0.02 + Math.random() * 0.03; // How quickly it returns to base
+          this.pushForceMultiplier = 1 + Math.random() * 0.5; // Variation in push strength
         }
 
-        update(mouse) {
-          const dx = this.x - mouse.x;
-          const dy = this.y - mouse.y;
-          const distance = Math.sqrt(dx ** 2 + dy ** 2);
+        update(interaction) {
+          let dxInteraction = 0;
+          let dyInteraction = 0;
+          let distanceInteraction = Infinity;
 
-          if (distance < 50) {
-            let force = (50 - distance) / 50;
-            this.vx += (dx / distance) * force;
-            this.vy += (dy / distance) * force;
+          // --- Interaction Calculation ---
+          if (interaction.x !== null && interaction.y !== null) {
+            dxInteraction = this.x - interaction.x;
+            dyInteraction = this.y - interaction.y;
+            distanceInteraction = Math.sqrt(
+              dxInteraction ** 2 + dyInteraction ** 2
+            );
 
-            this.vx += (Math.random() - 0.5) * this.turbulence;
-            this.vy += (Math.random() - 0.5) * this.turbulence;
+            if (
+              distanceInteraction < interaction.radius &&
+              distanceInteraction > 0
+            ) {
+              const force =
+                ((interaction.radius - distanceInteraction) /
+                  interaction.radius) *
+                this.density *
+                this.pushForceMultiplier;
+              // Push away from the interaction point
+              this.vx += (dxInteraction / distanceInteraction) * force;
+              this.vy += (dyInteraction / distanceInteraction) * force;
+            }
           }
 
+          // --- Return to Base Calculation ---
+          const dxBase = this.baseX - this.x;
+          const dyBase = this.baseY - this.y;
+          // Gently pull back to the base position
+          this.vx += dxBase * this.returnForce;
+          this.vy += dyBase * this.returnForce;
+
+          // --- Apply Friction & Update Position ---
           this.vx *= this.friction;
           this.vy *= this.friction;
 
           this.x += this.vx;
           this.y += this.vy;
 
-          const distLeft = this.x;
-          const distRight = canvas.width - this.x;
-          const distTop = this.y;
-          const distBottom = canvas.height - this.y;
+          // --- Fade near edges ---
+          const fadeMargin = 50;
+          if (this.x < fadeMargin) this.alpha = this.x / fadeMargin;
+          else if (this.x > canvas.width - fadeMargin)
+            this.alpha = (canvas.width - this.x) / fadeMargin;
+          else if (this.y < fadeMargin) this.alpha = this.y / fadeMargin;
+          else if (this.y > canvas.height - fadeMargin)
+            this.alpha = (canvas.height - this.y) / fadeMargin;
+          else this.alpha = 1;
 
-          const minDist = Math.min(distLeft, distRight, distTop, distBottom);
-
-          if (minDist < 200) {
-            this.alpha = minDist / 200;
-            if (this.alpha < 0) this.alpha = 0;
-          }
+          if (this.alpha < 0) this.alpha = 0;
+          if (this.alpha > 1) this.alpha = 1; // Clamp alpha
         }
 
         draw() {
+          // Optimization: Don't draw if almost invisible or outside screen
+          if (
+            this.alpha <= 0.01 ||
+            this.x < 0 ||
+            this.x > canvas.width ||
+            this.y < 0 ||
+            this.y > canvas.height
+          ) {
+            return;
+          }
           ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
           ctx.beginPath();
-          ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+          ctx.arc(this.x, this.y, 1.5, 0, Math.PI * 2); // Slightly smaller radius
           ctx.fill();
         }
       }
 
-      let mouse = {
-        x: null,
-        y: null,
-      };
+      // --- Event Listeners ---
 
-      window.addEventListener("mousemove", (e) => {
-        mouse.x = e.clientX;
-        mouse.y = e.clientY;
+      function updateInteractionPoint(x, y) {
+        interactionPoint.x = x;
+        interactionPoint.y = y;
+      }
+
+      function clearInteractionPoint() {
+        interactionPoint.x = null;
+        interactionPoint.y = null;
+      }
+
+      // Mouse Events
+      canvas.addEventListener("mousemove", (e) => {
+        updateInteractionPoint(e.clientX, e.clientY);
       });
 
+      canvas.addEventListener("mouseout", () => {
+        clearInteractionPoint();
+      });
+
+      // Touch Events
+      canvas.addEventListener(
+        "touchstart",
+        (e) => {
+          // Use the first touch point
+          if (e.touches.length > 0) {
+            updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
+          }
+          // Optional: Prevent default only if needed, might interfere with accessibility
+          // e.preventDefault();
+        },
+        { passive: false }
+      ); // `passive: false` is needed to allow preventDefault
+
+      canvas.addEventListener(
+        "touchmove",
+        (e) => {
+          // Prevent scrolling/zooming while interacting with canvas
+          e.preventDefault();
+          // Use the first touch point
+          if (e.touches.length > 0) {
+            updateInteractionPoint(e.touches[0].clientX, e.touches[0].clientY);
+          }
+        },
+        { passive: false }
+      ); // `passive: false` is needed to allow preventDefault
+
+      canvas.addEventListener("touchend", () => {
+        clearInteractionPoint();
+      });
+
+      canvas.addEventListener("touchcancel", () => {
+        clearInteractionPoint();
+      });
+
+      // --- Animation Loop ---
       function animate() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        particles.forEach((particle) => {
-          particle.update(mouse);
-          particle.draw();
-        });
+        for (let i = 0; i < particles.length; i++) {
+          particles[i].update(interactionPoint);
+          particles[i].draw();
+        }
 
         requestAnimationFrame(animate);
       }
 
+      // --- Responsive Canvas ---
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        fontSize = Math.min(window.innerWidth / 8, 100); // Recalculate font size
+        createParticles(); // Recreate particles for the new size/layout
+      }
+
+      window.addEventListener("resize", resizeCanvas);
+
+      // --- Initial Setup ---
       createParticles();
       animate();
     </script>
